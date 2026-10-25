@@ -168,6 +168,17 @@ private struct StatusBanner: View {
                 symbol: "magnifyingglass", title: "Nenhuma TV encontrada",
                 detail: "Ligue a TV e confira se ela está no mesmo Wi-Fi deste Mac.",
                 action: ("Procurar de novo", { Task { await model.discover(autoSelect: true) } }))
+        case .offline where model.isPhilips:
+            banner(
+                symbol: "tv.slash", title: "\(model.displayName) desligada",
+                detail: "Ligue a TV no controle físico — este modelo não liga pela rede.",
+                action: model.config.host == nil
+                    ? nil : ("Usar a \(model.samsungName)", { model.selectTV(.samsung) }))
+        case .offline:
+            banner(
+                symbol: "tv.slash", title: "\(model.displayName) desligada",
+                detail: "Ligue a TV, ou toque em Ligar para acordá-la pela rede.",
+                action: ("Ligar", model.togglePower))
         default:
             EmptyView()
         }
@@ -565,21 +576,37 @@ private struct VolumeRow: View {
     @Environment(RemoteModel.self) private var model
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 7) {
             Button(action: model.toggleMute) {
                 Image(systemName: model.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
             }
             .buttonStyle(GlassCircleButtonStyle(diameter: 30))
             .hint("Mudo (M)")
 
+            Button {
+                model.stepVolume(-1)
+            } label: {
+                Image(systemName: "minus")
+            }
+            .buttonStyle(GlassCircleButtonStyle(diameter: 30))
+            .hint("Abaixar volume (−)")
+
             Slider(value: Binding(get: { model.volume }, set: model.setVolume), in: 0...model.volumeMax)
                 .controlSize(.small)
-                .hint("Volume (+ / −)")
+                .hint("Volume")
+
+            Button {
+                model.stepVolume(1)
+            } label: {
+                Image(systemName: "plus")
+            }
+            .buttonStyle(GlassCircleButtonStyle(diameter: 30))
+            .hint("Aumentar volume (+)")
 
             Text("\(Int(model.volume))")
                 .font(.system(size: 12).monospacedDigit())
                 .foregroundStyle(.secondary)
-                .frame(width: 24, alignment: .trailing)
+                .frame(width: 22, alignment: .trailing)
 
             HStack(spacing: 0) {
                 Button {
