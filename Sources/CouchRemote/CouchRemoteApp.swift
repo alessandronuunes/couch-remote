@@ -11,7 +11,7 @@ struct CouchRemoteApp: App {
             PopoverView()
                 .environment(delegate.model)
         } label: {
-            Image(systemName: delegate.model.power == .on ? "tv.fill" : "tv")
+            Image(systemName: delegate.model.power == .on ? "av.remote.fill" : "av.remote")
         }
         .menuBarExtraStyle(.window)
 

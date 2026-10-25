@@ -1,6 +1,6 @@
-# Couch Remote: menu bar app, tvctl and TVKit.
+# Controle TV (Couch Remote fork): menu bar app, tvctl and TVKit.
 
-app := "build/Couch Remote.app"
+app := "build/Controle TV.app"
 sources := "Sources Tests Package.swift"
 
 default:
@@ -11,7 +11,7 @@ default:
 build:
     swift build
 
-# Release-build Couch Remote.app and tvctl into build/.
+# Release-build Controle TV.app and tvctl into build/.
 [group('build')]
 app:
     scripts/build-app.sh
@@ -55,23 +55,28 @@ check: lint test app
 # Install the app to ~/Applications and tvctl to dest.
 [group('install')]
 install dest="~/.local/bin": app
-    rm -rf ~/Applications/"Couch Remote.app"
+    rm -rf ~/Applications/"Controle TV.app"
     mkdir -p ~/Applications {{dest}}
     cp -R "{{app}}" ~/Applications/
     install -m 0755 build/tvctl {{dest}}/tvctl
-    @echo "Installed ~/Applications/Couch Remote.app and {{dest}}/tvctl"
+    @echo "Installed ~/Applications/Controle TV.app and {{dest}}/tvctl"
 
 # Remove the installed app and tvctl.
 [group('install')]
 uninstall dest="~/.local/bin":
-    rm -rf ~/Applications/"Couch Remote.app"
+    rm -rf ~/Applications/"Controle TV.app"
     rm -f {{dest}}/tvctl
-    @echo "Removed ~/Applications/Couch Remote.app and {{dest}}/tvctl"
+    @echo "Removed ~/Applications/Controle TV.app and {{dest}}/tvctl"
 
 # Download App Store icons for catalog apps that have none yet.
 [group('assets')]
 icons:
     scripts/fetch-icons.sh
+
+# Redraw Resources/AppIcon.icns from scripts/make-app-icon.swift.
+[group('assets')]
+app-icon:
+    scripts/make-app-icon.sh
 
 # Retake the light and dark README screenshots (needs the TV on).
 [group('assets')]

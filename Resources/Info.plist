@@ -3,17 +3,19 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>en</string>
+	<string>pt-BR</string>
 	<key>CFBundleDisplayName</key>
-	<string>Couch Remote</string>
+	<string>Controle TV</string>
 	<key>CFBundleExecutable</key>
 	<string>CouchRemote</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.helgesverre.CouchRemote</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Couch Remote</string>
+	<string>Controle TV</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -26,13 +28,13 @@
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
-	<key>NSHighResolutionCapable</key>
-	<true/>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_samsungmsf._tcp</string>
 	</array>
+	<key>NSHighResolutionCapable</key>
+	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Couch Remote controls your TV over the local network.</string>
+	<string>O Controle TV comanda suas TVs pela rede local.</string>
 </dict>
 </plist>

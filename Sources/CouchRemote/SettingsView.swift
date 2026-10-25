@@ -146,7 +146,7 @@ struct SettingsView: View {
             Text("Botões do controle")
         } footer: {
             footer(
-                "Reaproveite um botão de app do controle da TV: quando o app da esquerda abrir, o da direita abre no lugar. Funciona com o Couch Remote aberto."
+                "Reaproveite um botão de app do controle da TV: quando o app da esquerda abrir, o da direita abre no lugar. Funciona com o Controle TV aberto."
             )
         }
     }

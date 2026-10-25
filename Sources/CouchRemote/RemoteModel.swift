@@ -170,6 +170,13 @@ final class RemoteModel {
         }
     }
 
+    /// Hides every window showing the remote (menu bar panel, floating window). The app keeps running.
+    func hideRemote() {
+        for (number, visible) in remoteWindows where visible {
+            NSApp.window(withWindowNumber: number)?.close()
+        }
+    }
+
     // MARK: Connection
 
     private func makeTV(host: String) {
@@ -216,7 +223,7 @@ final class RemoteModel {
         } catch SamsungTVError.notPaired {
             // Needs the Allow prompt, which only an explicit pairing may trigger.
             link = .failed(
-                "O Couch Remote não está pareado com esta TV. Escolha Parear de novo e toque em Permitir na TV.")
+                "O Controle TV não está pareado com esta TV. Escolha Parear de novo e toque em Permitir na TV.")
         } catch RemoteChannelError.unauthorized {
             link = .failed("A TV recusou. Escolha Parear de novo e toque em Permitir na TV.")
         } catch {

@@ -61,6 +61,12 @@ private struct HeaderView: View {
 
             Spacer(minLength: 4)
 
+            Button(action: model.hideRemote) {
+                Image(systemName: "minus")
+            }
+            .buttonStyle(GlassCircleButtonStyle(diameter: 30))
+            .hint("Esconder o controle (Esc). O app continua na barra de menu.")
+
             Menu {
                 if !model.isPhilips {
                     Button("Atualizar apps") { Task { await model.rescanApps() } }
@@ -72,7 +78,7 @@ private struct HeaderView: View {
                     openSettings()
                 }
                 .keyboardShortcut(",")
-                Button("Sair do Couch Remote") { NSApp.terminate(nil) }
+                Button("Sair do Controle TV") { NSApp.terminate(nil) }
                     .keyboardShortcut("q")
             } label: {
                 Image(systemName: "ellipsis")
@@ -152,7 +158,7 @@ private struct StatusBanner: View {
         case .waitingForApproval:
             banner(
                 symbol: "hand.tap", title: "Toque em Permitir na TV",
-                detail: "A TV está perguntando se o Couch Remote pode controlá-la.")
+                detail: "A TV está perguntando se o Controle TV pode controlá-la.")
         case .failed(let message):
             banner(
                 symbol: "exclamationmark.triangle", title: "Não foi possível controlar a TV", detail: message,
