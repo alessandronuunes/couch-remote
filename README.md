@@ -6,18 +6,23 @@
 [![Swift 6.2](https://img.shields.io/badge/Swift-6.2-F05138.svg)](Package.swift)
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-000000.svg)](Package.swift)
 [![Samsung Tizen TVs](https://img.shields.io/badge/Samsung-Tizen%20TVs-1428A0.svg)](docs/PROTOCOL.md)
+[![Philips NetTV](https://img.shields.io/badge/Philips-NetTV%20(JointSPACE%20v1)-0B5ED7.svg)](#philips-tv)
 [![MIT license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-A remote for Samsung smart TVs that lives in your Mac's menu bar. Open apps, steer with the
-arrow keys, set the volume, drive the TV browser's cursor with your trackpad and type into
-its search fields, all over your local network.
+> **This is a fork** of [HelgeSverre/couch-remote](https://github.com/HelgeSverre/couch-remote).
+> It adds a second TV, an older Philips NetTV set, with a picker to switch between the two,
+> hover hints on every control, and an interface in Brazilian Portuguese. See [Philips TV](#philips-tv).
 
-Built on [TVKit](Sources/TVKit), a dependency-free Swift library for Samsung Tizen TVs that
-ships in this package. The package also includes `tvctl` ("TV control"), a command-line tool
-that does the same things from Terminal.
+A remote for Samsung smart TVs, and Philips NetTV sets, that lives in your Mac's menu bar.
+Open apps, steer with the arrow keys, set the volume, drive the TV browser's cursor with your
+trackpad and type into its search fields, all over your local network.
 
-[Install](#install) · [Using it](#using-it) · [tvctl](#tvctl) · [TVKit](#tvkit) ·
-[Compatibility](#compatibility) · [Protocol notes](docs/PROTOCOL.md)
+Built on [TVKit](Sources/TVKit), a dependency-free Swift library for Samsung Tizen TVs (and,
+in this fork, Philips JointSPACE v1 sets) that ships in this package. The package also includes
+`tvctl` ("TV control"), a command-line tool that does the same things from Terminal.
+
+[Install](#install) · [Using it](#using-it) · [Philips TV](#philips-tv) · [tvctl](#tvctl) ·
+[TVKit](#tvkit) · [Compatibility](#compatibility) · [Protocol notes](docs/PROTOCOL.md)
 
 <p align="center">
   <img src="docs/assets/screenshot-light.png" width="380" alt="Couch Remote in light mode: TV status, a grid of app tiles, a D-pad with Back, Home, Source, Play/Pause, Info and trackpad buttons, a volume slider with channel buttons, and a field for typing on the TV">
@@ -34,13 +39,17 @@ that does the same things from Terminal.
 - **Trackpad:** steer the cursor in the TV's web browser, click, and type straight into the field you clicked.
 - **Remote button rules:** make an app button on the TV remote open something else, such as Prime Video → YouTube.
 - **Power:** turns the TV off, and on again from standby.
+- **Two TVs:** a Philips NetTV set next to the Samsung TV, with a picker to switch between them.
+- **Hover hints:** rest the mouse on any control to see what it does and its keyboard shortcut.
+
+The interface is in Brazilian Portuguese; `tvctl` stays in English.
 
 ## Install
 
 Couch Remote is built from source. You need macOS 14 or later and Xcode 26 (Swift 6.2).
 
 ```sh
-git clone https://github.com/HelgeSverre/couch-remote.git
+git clone https://github.com/alessandronuunes/couch-remote.git
 cd couch-remote
 scripts/build-app.sh --install
 open "$HOME/Applications/Couch Remote.app"
@@ -86,6 +95,32 @@ live as you type. Return confirms.
 YouTube". When Prime Video opens, Couch Remote opens YouTube instead. Couch Remote has to be
 running, and the first app shows for about a second before the switch.
 
+## Philips TV
+
+Besides the Samsung TV, the remote can drive a Philips NetTV set from before Android TV
+(roughly 2011–2016) through its JointSPACE v1 API: plain HTTP on port 1925, no pairing.
+Check that your set has it with `curl http://<tv-ip>:1925/1/system`; a JSON reply means it does.
+
+Add it in **Ajustes → Philips TV** (or with `tvctl philips use <ip>`). The address is saved
+only if the TV answers. From then on a picker at the top of the remote switches between the
+two TVs. With the Philips set selected:
+
+<p align="center">
+  <img src="docs/assets/screenshot-philips.png" width="380" alt="Couch Remote with the Philips TV selected: a TV picker, a grid of inputs (HDMI 1, HDMI 2, VGA, Watch TV…), the D-pad and a volume slider">
+</p>
+
+- **Inputs replace apps:** the grid lists the set's inputs (HDMI, TV, VGA…); click one to switch.
+  The list is what the TV supports, not what is plugged in.
+- **Volume and mute** are set directly instead of with keys, because the set ignores some
+  volume keys (often the first one after a pause). Its scale is 0–60.
+- **Arrows don't repeat** while held: JointSPACE has no press-and-hold, so each click is one press.
+- **Power only turns it off.** In standby the set drops off the network and doesn't answer
+  Wake-on-LAN, so it can't be turned on from the Mac.
+- The trackpad, typing and pairing are hidden; the set has none of them.
+
+Tested on a Philips NetTV set with NetTV 4.4.2 (2015 firmware). The JointSPACE client is based
+on [pkielblock/PhilipsTVRemote](https://github.com/pkielblock/PhilipsTVRemote) (MIT).
+
 ## tvctl
 
 `tvctl` (short for "TV control") is a command-line tool for the same TV. It sends keys,
@@ -108,7 +143,15 @@ swift run tvctl launch netflix
 swift run tvctl volume 12
 swift run tvctl remap "Prime Video" YouTube
 swift run tvctl sdb apps               # Developer Mode only: exact app list with use counts
+
+swift run tvctl philips use 192.168.1.30   # remember the Philips set (also shown in the app)
+swift run tvctl philips sources            # list its inputs; * marks the current one
+swift run tvctl philips source hdmi1
+swift run tvctl philips key CursorDown Confirm
+swift run tvctl philips volume 20          # 0–60 on this set
 ```
+
+`--host <ip>` also works with `philips` and overrides the saved address.
 
 Run `swift run tvctl` for the full list.
 
@@ -126,6 +169,11 @@ tv.press(.home)
 tv.hold(.right); tv.release(.right)
 try await tv.launch(appID: "111299001912")  // YouTube
 try await tv.setVolume(12)
+
+let philips = PhilipsTV(host: "192.168.10.30")  // no pairing
+try await philips.press(.home)
+try await philips.press(PhilipsKey(.volumeUp)!) // Samsung keys map to Philips keys
+try await philips.setSource("hdmi1")
 ```
 
 See [Sources/TVKit/README.md](Sources/TVKit/README.md) for the API and
@@ -137,8 +185,12 @@ remote-control WebSocket, UPnP, Wake-on-LAN and sdb.
 Tested on a Samsung **QE55Q65AAUXXC** (2021, Tizen 6.0). Samsung Tizen TVs from 2016 on
 should mostly work, but model years differ in small ways; TVKit handles the differences
 documented by other projects. Pre-2016 TVs, which aren't Tizen, are not supported.
+This fork has also run on a Samsung **UN43AU7700GXZD** (2021, Tizen).
 
-If something doesn't work on your TV,
+Philips: tested on one NetTV set with JointSPACE v1 (NetTV 4.4.2, 2015). Android TV models use
+JointSPACE v6 with pairing on port 1926 and are not supported.
+
+If something doesn't work on your Samsung TV,
 [open a compatibility report](https://github.com/HelgeSverre/couch-remote/issues/new?template=tv-compatibility.yml)
 with your model and the output of `tvctl info`.
 
@@ -172,4 +224,5 @@ Other recipes: `just run --window` builds and launches the app (also `--settings
 ## License
 
 [MIT](LICENSE). App names and icons are trademarks of their owners. Couch Remote isn't
-affiliated with Samsung.
+affiliated with Samsung or Philips. Original project by
+[Helge Sverre](https://github.com/HelgeSverre/couch-remote).
