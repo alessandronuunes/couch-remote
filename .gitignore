@@ -4,3 +4,6 @@ build/
 *.xcodeproj/
 xcuserdata/
 .DS_Store
+
+# Configuração local (token de pareamento das TVs)
+/config/

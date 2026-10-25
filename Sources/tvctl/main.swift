@@ -21,12 +21,22 @@ let usage = """
       remap <from> <to>     open app <to> whenever app <from> comes to the front (runs until Ctrl-C)
       wake                  send Wake-on-LAN to the TV's Wi-Fi MAC
       raw '<json>' [...]    send WebSocket messages as-is (with TVKIT_DEBUG=1 to see replies)
+
+    Philips NetTV (JointSPACE v1), always with --host:
+      philips info                  name, country, NetTV version
+      philips key <KEY> [...]       send keys, e.g. philips key VolumeUp CursorDown Confirm
+      philips volume [n]            read or set volume
+      philips mute [on|off]         read or set mute
+      philips sources               list inputs
+      philips source [id]           read or switch the current input, e.g. philips source hdmi1
     """
 
 setvbuf(stdout, nil, _IOLBF, 0)  // print each line right away, also when piped
 var config = ConfigStore.load()
 var args = Array(CommandLine.arguments.dropFirst())
+var hostArgument: String?
 if let i = args.firstIndex(of: "--host"), i + 1 < args.count {
+    hostArgument = args[i + 1]
     config.host = args[i + 1]
     args.removeSubrange(i...(i + 1))
 }
@@ -221,6 +231,58 @@ func keyName(_ raw: String) -> RemoteKey {
         guard let mac = config.wifiMAC else { fail("No MAC address saved. Run `tvctl info` while the TV is on.") }
         try SamsungTV.wake(mac: mac, near: config.host)
         print("Sent Wake-on-LAN to \(mac)")
+
+    case "philips":
+        try await runPhilips(rest)
+
+    default:
+        print(usage)
+    }
+}
+
+/// The saved config holds the Samsung TV, so Philips commands only take an explicit `--host`.
+@MainActor func runPhilips(_ args: [String]) async throws {
+    guard let host = hostArgument else { fail("usage: tvctl --host <ip> philips <command>") }
+    let tv = PhilipsTV(host: host)
+    let rest = Array(args.dropFirst())
+    switch args.first {
+    case "info":
+        let info = try await tv.info()
+        print(
+            """
+            name        \(info.name)
+            country     \(info.country ?? "?")
+            nettv       \(info.netTVVersion ?? "?")
+            """)
+
+    case "key":
+        guard !rest.isEmpty else { fail("usage: tvctl --host <ip> philips key <KEY> [...]") }
+        for raw in rest {
+            try await tv.press(PhilipsKey(raw))
+            try await Task.sleep(for: .milliseconds(350))
+        }
+
+    case "volume":
+        if let raw = rest.first {
+            guard let value = Int(raw) else { fail("usage: tvctl --host <ip> philips volume [n]") }
+            try await tv.setVolume(value)
+        }
+        let volume = try await tv.volume()
+        print("\(volume.current) (\(volume.min)–\(volume.max))")
+
+    case "mute":
+        if let raw = rest.first { try await tv.setMuted(raw == "on") }
+        print(try await tv.volume().muted ? "on" : "off")
+
+    case "sources":
+        let current = try await tv.currentSource()
+        for source in try await tv.sources() {
+            print("\(source.id == current ? "*" : " ") \(source.id)\t\(source.name)")
+        }
+
+    case "source":
+        if let id = rest.first { try await tv.setSource(id) }
+        print(try await tv.currentSource() ?? "unknown")
 
     default:
         print(usage)
