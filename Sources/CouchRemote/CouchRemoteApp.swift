@@ -54,7 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: hosting.fittingSize),
             styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "Settings"
+        window.title = "Ajustes"
         window.contentView = hosting
         window.center()
         window.makeKeyAndOrderFront(nil)

@@ -22,7 +22,8 @@ let usage = """
       wake                  send Wake-on-LAN to the TV's Wi-Fi MAC
       raw '<json>' [...]    send WebSocket messages as-is (with TVKIT_DEBUG=1 to see replies)
 
-    Philips NetTV (JointSPACE v1), always with --host:
+    Philips NetTV (JointSPACE v1), at the address saved with `philips use` or given with --host:
+      philips use <ip>              remember the Philips TV's address (also shown in the app)
       philips info                  name, country, NetTV version
       philips key <KEY> [...]       send keys, e.g. philips key VolumeUp CursorDown Confirm
       philips volume [n]            read or set volume
@@ -240,11 +241,21 @@ func keyName(_ raw: String) -> RemoteKey {
     }
 }
 
-/// The saved config holds the Samsung TV, so Philips commands only take an explicit `--host`.
+/// `--host` overrides the saved Philips address here; `config.host` is the Samsung TV's.
 @MainActor func runPhilips(_ args: [String]) async throws {
-    guard let host = hostArgument else { fail("usage: tvctl --host <ip> philips <command>") }
-    let tv = PhilipsTV(host: host)
     let rest = Array(args.dropFirst())
+    if args.first == "use" {
+        guard let host = rest.first else { fail("usage: tvctl philips use <ip>") }
+        config.host = ConfigStore.load().host  // undo a --host meant for the Philips set
+        config.philipsHost = host
+        save()
+        print("Saved \(host)")
+        return
+    }
+    guard let host = hostArgument ?? config.philipsHost else {
+        fail("No Philips TV address. Run `tvctl philips use <ip>` or pass --host <ip>.")
+    }
+    let tv = PhilipsTV(host: host)
     switch args.first {
     case "info":
         let info = try await tv.info()

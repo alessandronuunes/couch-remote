@@ -2,7 +2,8 @@ import AppKit
 import Observation
 import TVKit
 
-/// UI state for the popover and settings. TV access goes through TVKit's `SamsungTV`.
+/// UI state for the popover and settings. TV access goes through TVKit's `SamsungTV`, or `PhilipsTV` while
+/// the Philips set is the active TV.
 @MainActor @Observable
 final class RemoteModel {
     enum Link: Equatable {
@@ -25,7 +26,11 @@ final class RemoteModel {
     private(set) var runningApps: Set<String> = []
     private(set) var frontAppID: String?
     private(set) var volume: Double = 0
+    /// Top of the TV's volume scale: 100 on Samsung, 60 on the Philips set.
+    private(set) var volumeMax: Double = 100
     private(set) var muted = false
+    private(set) var philipsSources: [PhilipsSource] = []
+    private(set) var currentSource: String?
     private(set) var tvKeyboardOpen = false
     private(set) var flashedKey: RemoteKey?
     /// Keys currently held down from the UI or keyboard.
@@ -45,6 +50,8 @@ final class RemoteModel {
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var remapTask: Task<Void, Never>?
     @ObservationIgnored private var volumeTask: Task<Void, Never>?
+    /// Last queued Philips key, so keys reach the TV in the order they were pressed.
+    @ObservationIgnored private var philipsKeyTask: Task<Void, Never>?
     @ObservationIgnored private var lastVolumeEdit = Date.distantPast
     @ObservationIgnored private var flashCount = 0
     @ObservationIgnored private var keyMonitor: Any?
@@ -79,10 +86,21 @@ final class RemoteModel {
 
     var hiddenApps: [TVApp] { config.knownApps.filter { config.hiddenApps.contains($0.id) } }
 
-    var displayName: String { device?.name ?? config.name ?? "Samsung TV" }
+    /// The Philips set, while it is the active TV. `nil` means the Samsung TV is in use.
+    var philips: PhilipsTV? {
+        guard config.activeTV == .philips, let host = config.philipsHost else { return nil }
+        return PhilipsTV(host: host)
+    }
+
+    var isPhilips: Bool { philips != nil }
+
+    var samsungName: String { device?.name ?? config.name ?? "Samsung TV" }
+
+    var displayName: String { isPhilips ? "Philips TV" : samsungName }
 
     var frontAppName: String? {
-        frontAppID.flatMap { id in config.knownApps.first { $0.id == id }?.name }
+        if isPhilips { return currentSource.flatMap { id in philipsSources.first { $0.id == id }?.name } }
+        return frontAppID.flatMap { id in config.knownApps.first { $0.id == id }?.name }
     }
 
     func name(ofApp id: String) -> String {
@@ -93,14 +111,37 @@ final class RemoteModel {
 
     func start() {
         updateRemaps()
-        Task {
-            if config.host == nil { await discover(autoSelect: true) }
-            guard config.host != nil else { return }
+        Task { await startActiveTV() }
+    }
+
+    private func startActiveTV() async {
+        if isPhilips {
             await refreshStatus()
-            await connect(allowPairing: true)
-            if config.knownApps.isEmpty { await rescanApps() }
-            await loadIcons()
+            await refreshRunningApps()
+            return
         }
+        if config.host == nil { await discover(autoSelect: true) }
+        guard config.host != nil else { return }
+        await refreshStatus()
+        await connect(allowPairing: true)
+        if config.knownApps.isEmpty { await rescanApps() }
+        await loadIcons()
+    }
+
+    /// Switches the remote to another TV. The Samsung TV keeps its pairing and remap rules meanwhile.
+    func selectTV(_ brand: TVBrand) {
+        guard brand != config.activeTV else { return }
+        releaseAllKeys()
+        pointerMode = false
+        setPointerCaptured(false)
+        config.activeTV = brand
+        persist()
+        link = .connecting
+        power = .unknown
+        volume = 0
+        muted = false
+        currentSource = nil
+        Task { await startActiveTV() }
     }
 
     func setPopover(window: NSWindow?, visible: Bool) {
@@ -144,13 +185,18 @@ final class RemoteModel {
     }
 
     private func handle(_ event: SamsungTV.Event) {
+        if case .paired(let token) = event {
+            config.token = token
+            persist()
+            return
+        }
+        // The Samsung socket may still report in while the Philips set is on screen.
+        guard !isPhilips else { return }
         switch event {
         case .awaitingApproval: link = .waitingForApproval
         case .connected: link = .connected
         case .disconnected: link = power == .on ? .connecting : .offline
-        case .paired(let token):
-            config.token = token
-            persist()
+        case .paired: break
         case .keyboardShown: tvKeyboardOpen = true
         case .keyboardHidden: tvKeyboardOpen = false
         case .commandFailed(let message):
@@ -159,7 +205,7 @@ final class RemoteModel {
     }
 
     func connect(allowPairing: Bool) async {
-        guard let tv, await !tv.isConnected else { return }
+        guard !isPhilips, let tv, await !tv.isConnected else { return }
         guard power != .offline else {
             link = .offline
             return
@@ -169,13 +215,14 @@ final class RemoteModel {
             try await tv.connect(allowPairing: allowPairing)
         } catch SamsungTVError.notPaired {
             // Needs the Allow prompt, which only an explicit pairing may trigger.
-            link = .failed("Couch Remote isn't paired with this TV. Choose Pair Again, then press Allow on the TV.")
+            link = .failed(
+                "O Couch Remote não está pareado com esta TV. Escolha Parear de novo e toque em Permitir na TV.")
         } catch RemoteChannelError.unauthorized {
-            link = .failed("The TV declined. Choose Pair Again, then press Allow on the TV.")
+            link = .failed("A TV recusou. Escolha Parear de novo e toque em Permitir na TV.")
         } catch {
             link =
                 config.token == nil
-                ? .failed("The TV didn't answer the pairing request. Choose Pair Again, then press Allow on the TV.")
+                ? .failed("A TV não respondeu ao pareamento. Escolha Parear de novo e toque em Permitir na TV.")
                 : .failed(error.localizedDescription)
         }
     }
@@ -191,7 +238,12 @@ final class RemoteModel {
     // MARK: Status
 
     func refreshStatus() async {
+        if let philips {
+            await refreshPhilipsStatus(philips)
+            return
+        }
         guard let tv else { return }
+        volumeMax = 100
         do {
             let info = try await tv.info()
             device = info
@@ -215,7 +267,30 @@ final class RemoteModel {
         if let value = try? await tv.isMuted() { muted = value }
     }
 
+    /// The Philips set has no connection to keep: it is reachable over HTTP or it is off.
+    private func refreshPhilipsStatus(_ philips: PhilipsTV) async {
+        guard let state = try? await philips.volume() else {
+            power = .offline
+            link = .offline
+            return
+        }
+        power = .on
+        link = .connected
+        volumeMax = Double(state.max)
+        if Date().timeIntervalSince(lastVolumeEdit) > 2 { volume = Double(state.current) }
+        muted = state.muted
+    }
+
     func refreshRunningApps() async {
+        if let philips {
+            guard power == .on else {
+                currentSource = nil
+                return
+            }
+            if philipsSources.isEmpty { philipsSources = (try? await philips.sources()) ?? [] }
+            currentSource = try? await philips.currentSource()
+            return
+        }
         guard let tv, power == .on else {
             runningApps = []
             frontAppID = nil
@@ -245,9 +320,9 @@ final class RemoteModel {
 
     func addApp(id: String) async -> String? {
         let id = id.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let tv, !id.isEmpty else { return "Enter an app ID." }
+        guard let tv, !id.isEmpty else { return "Digite o ID de um app." }
         guard let status = try? await tv.status(ofApp: id) else {
-            return "The TV doesn't have an app with ID \(id)."
+            return "A TV não tem um app com o ID \(id)."
         }
         if !config.customAppIDs.contains(id) { config.customAppIDs.append(id) }
         if !config.knownApps.contains(where: { $0.id == id }) {
@@ -317,17 +392,27 @@ final class RemoteModel {
 
     func press(_ key: RemoteKey) {
         flash(key)
+        if isPhilips {
+            sendToPhilips(key)
+            return
+        }
         tv?.press(key)
     }
 
     /// Starts holding a key; the TV repeats it until `release(_:)`.
+    /// JointSPACE has no press-and-hold, so on the Philips set a hold is a single press.
     func hold(_ key: RemoteKey) {
         guard heldKeys.insert(key).inserted else { return }
+        if isPhilips {
+            sendToPhilips(key)
+            return
+        }
         tv?.hold(key)
     }
 
     func release(_ key: RemoteKey) {
         guard heldKeys.remove(key) != nil else { return }
+        guard !isPhilips else { return }
         tv?.release(key)
     }
 
@@ -335,7 +420,23 @@ final class RemoteModel {
         guard !heldKeys.isEmpty else { return }
         heldKeys = []
         heldKeyCodes = [:]
+        guard !isPhilips else { return }
         tv?.releaseAll()
+    }
+
+    private func sendToPhilips(_ key: RemoteKey) {
+        guard let philips, let philipsKey = PhilipsKey(key) else { return }
+        let previous = philipsKeyTask
+        philipsKeyTask = Task {
+            await previous?.value
+            try? await philips.press(philipsKey)
+        }
+    }
+
+    func selectSource(_ id: String) {
+        guard let philips else { return }
+        currentSource = id
+        Task { try? await philips.setSource(id) }
     }
 
     func movePointer(dx: Int, dy: Int) {
@@ -367,13 +468,27 @@ final class RemoteModel {
         flashedKey == key || heldKeys.contains(key)
     }
 
-    /// Samsung has separate play and pause keys; alternate between them.
+    /// Samsung has separate play and pause keys; alternate between them. Philips has one PlayPause key.
     func playPause() {
+        if isPhilips {
+            press(.play)
+            return
+        }
         press(playing ? .pause : .play)
         playing.toggle()
     }
 
+    /// The Philips set drops off the network in standby, so it can only be turned off from here.
+    var canTogglePower: Bool { !isPhilips || power == .on }
+
     func togglePower() {
+        if isPhilips {
+            guard power == .on else { return }
+            press(.power)
+            power = .offline
+            link = .offline
+            return
+        }
         switch power {
         case .on:
             press(.power)
@@ -399,24 +514,43 @@ final class RemoteModel {
     }
 
     func setVolume(_ value: Double) {
-        guard let tv else { return }
+        let philips = philips
+        let tv = tv
+        guard philips != nil || tv != nil else { return }
         volume = value.rounded()
         lastVolumeEdit = Date()
         volumeTask?.cancel()
         volumeTask = Task {
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
-            try? await tv.setVolume(Int(value.rounded()))
+            let level = Int(value.rounded())
+            if let philips {
+                try? await philips.setVolume(level)
+            } else {
+                try? await tv?.setVolume(level)
+            }
         }
     }
 
+    /// On the Philips set this sets the level directly: it ignores some volume keys (often the first after a pause).
     func stepVolume(_ delta: Int) {
+        let target = min(volumeMax, max(0, volume + Double(delta)))
+        if isPhilips {
+            setVolume(target)
+            return
+        }
         press(delta > 0 ? .volumeUp : .volumeDown)
-        volume = min(100, max(0, volume + Double(delta)))
+        volume = target
         lastVolumeEdit = Date()
     }
 
     func toggleMute() {
+        if let philips {
+            muted.toggle()
+            let muted = muted
+            Task { try? await philips.setMuted(muted) }
+            return
+        }
         press(.mute)
         muted.toggle()
     }
@@ -556,6 +690,27 @@ final class RemoteModel {
             await connect(allowPairing: true)
             await rescanApps()
         }
+    }
+
+    /// Saves the Philips set's address after checking that it answers. Returns an error message, or `nil`.
+    /// An empty address removes the Philips set.
+    func setPhilipsHost(_ host: String) async -> String? {
+        let host = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty else {
+            selectTV(.samsung)
+            config.philipsHost = nil
+            philipsSources = []
+            persist()
+            return nil
+        }
+        guard (try? await PhilipsTV(host: host).info()) != nil else {
+            return "Nenhuma Philips respondeu em \(host). Ligue a TV e confira o endereço."
+        }
+        config.philipsHost = host
+        philipsSources = []
+        persist()
+        if isPhilips { Task { await startActiveTV() } }
+        return nil
     }
 
     func setWifiMAC(_ mac: String) {

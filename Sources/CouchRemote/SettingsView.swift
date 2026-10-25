@@ -6,6 +6,9 @@ struct SettingsView: View {
     @Environment(RemoteModel.self) private var model
     @State private var hostDraft = ""
     @State private var macDraft = ""
+    @State private var philipsDraft = ""
+    @State private var philipsError: String?
+    @State private var checkingPhilips = false
     @State private var appIDDraft = ""
     @State private var addError: String?
     @State private var searching = false
@@ -15,6 +18,7 @@ struct SettingsView: View {
     var body: some View {
         Form {
             tvSection
+            philipsSection
             remapSection
             appsSection
             generalSection
@@ -25,22 +29,48 @@ struct SettingsView: View {
         .onAppear {
             hostDraft = model.config.host ?? ""
             macDraft = model.config.wifiMAC ?? ""
+            philipsDraft = model.config.philipsHost ?? ""
+        }
+    }
+
+    private var philipsSection: some View {
+        Section {
+            HStack {
+                TextField("Endereço", text: $philipsDraft, prompt: Text("192.168.1.30"))
+                Button(checkingPhilips ? "Verificando…" : "Salvar") {
+                    checkingPhilips = true
+                    Task {
+                        philipsError = await model.setPhilipsHost(philipsDraft)
+                        checkingPhilips = false
+                    }
+                }
+                .disabled(checkingPhilips || philipsDraft == (model.config.philipsHost ?? ""))
+            }
+            if let philipsError {
+                Text(philipsError).foregroundStyle(.red).font(.callout)
+            }
+        } header: {
+            Text("Philips TV")
+        } footer: {
+            footer(
+                "Uma Philips NetTV anterior à Android TV (JointSPACE na porta 1925). Depois de salva, o controle mostra um seletor para trocar de TV. Apague o endereço para removê-la."
+            )
         }
     }
 
     private var tvSection: some View {
-        Section("Television") {
-            LabeledContent("Name", value: model.displayName)
+        Section("Samsung TV") {
+            LabeledContent("Nome", value: model.displayName)
             if let modelName = model.device?.modelName ?? model.config.modelName {
-                LabeledContent("Model", value: modelName)
+                LabeledContent("Modelo", value: modelName)
             }
             HStack {
-                TextField("Address", text: $hostDraft, prompt: Text("192.168.1.20"))
-                Button("Connect") { model.useTV(host: hostDraft) }
+                TextField("Endereço", text: $hostDraft, prompt: Text("192.168.1.20"))
+                Button("Conectar") { model.useTV(host: hostDraft) }
                     .disabled(hostDraft.isEmpty || hostDraft == model.config.host)
             }
             HStack {
-                Button(searching ? "Searching…" : "Find TVs on This Network") {
+                Button(searching ? "Procurando…" : "Procurar TVs nesta rede") {
                     searching = true
                     Task {
                         await model.discover(autoSelect: false)
@@ -49,7 +79,7 @@ struct SettingsView: View {
                 }
                 .disabled(searching)
                 Spacer()
-                Button("Pair Again", action: model.pairAgain)
+                Button("Parear de novo", action: model.pairAgain)
             }
             ForEach(model.discovered) { tv in
                 HStack {
@@ -59,18 +89,18 @@ struct SettingsView: View {
                     }
                     Spacer()
                     if tv.host == model.config.host {
-                        Text("In use").foregroundStyle(.secondary)
+                        Text("Em uso").foregroundStyle(.secondary)
                     } else {
-                        Button("Use") {
+                        Button("Usar") {
                             hostDraft = tv.host
                             model.useTV(host: tv.host)
                         }
                     }
                 }
             }
-            TextField("Wi-Fi MAC", text: $macDraft, prompt: Text("Read from the TV"))
+            TextField("Wi-Fi MAC", text: $macDraft, prompt: Text("Lido da TV"))
                 .onSubmit { model.setWifiMAC(macDraft) }
-                .help("Used to wake the TV from standby with Wake-on-LAN.")
+                .help("Usado para ligar a TV pela rede (Wake-on-LAN).")
         }
     }
 
@@ -82,7 +112,7 @@ struct SettingsView: View {
             ForEach(model.config.remaps) { rule in
                 HStack(spacing: 8) {
                     Picker(
-                        "When",
+                        "Quando",
                         selection: Binding(
                             get: { rule.fromAppID },
                             set: { model.updateRemap(rule.id, from: $0) }
@@ -92,7 +122,7 @@ struct SettingsView: View {
                     }
                     Image(systemName: "arrow.right").foregroundStyle(.secondary)
                     Picker(
-                        "Open instead",
+                        "Abrir no lugar",
                         selection: Binding(
                             get: { rule.toAppID },
                             set: { model.updateRemap(rule.id, to: $0) }
@@ -107,16 +137,16 @@ struct SettingsView: View {
                         Image(systemName: "minus.circle.fill").foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .help("Remove this rule")
+                    .help("Remover esta regra")
                 }
             }
-            Button("Add Rule", action: model.addRemap)
+            Button("Adicionar regra", action: model.addRemap)
                 .disabled(apps.count < 2)
         } header: {
-            Text("Remote Buttons")
+            Text("Botões do controle")
         } footer: {
             footer(
-                "Repurpose an app button on your TV remote: when the left app opens, the right one opens instead. Works while Couch Remote is running."
+                "Reaproveite um botão de app do controle da TV: quando o app da esquerda abrir, o da direita abre no lugar. Funciona com o Couch Remote aberto."
             )
         }
     }
@@ -124,8 +154,8 @@ struct SettingsView: View {
     private var appsSection: some View {
         Section {
             HStack {
-                TextField("App ID", text: $appIDDraft, prompt: Text("3201907018807"))
-                Button("Add") {
+                TextField("ID do app", text: $appIDDraft, prompt: Text("3201907018807"))
+                Button("Adicionar") {
                     Task {
                         addError = await model.addApp(id: appIDDraft)
                         if addError == nil { appIDDraft = "" }
@@ -140,28 +170,28 @@ struct SettingsView: View {
                 HStack {
                     Text(app.name)
                     Spacer()
-                    Button("Show") { model.unhide(app) }
+                    Button("Mostrar") { model.unhide(app) }
                 }
             }
             HStack {
-                Button(model.scanningApps ? "Scanning…" : "Scan for Apps Again") {
+                Button(model.scanningApps ? "Procurando…" : "Procurar apps de novo") {
                     Task { await model.rescanApps() }
                 }
                 .disabled(model.scanningApps)
                 Spacer()
-                Button("Reset Order", action: model.resetOrder)
+                Button("Restaurar ordem", action: model.resetOrder)
                     .disabled(model.config.appOrder.isEmpty)
             }
         } header: {
             Text("Apps")
         } footer: {
-            footer("Add an app the scan missed by its ID. Hidden apps are listed here.")
+            footer("Adicione pelo ID um app que a busca não encontrou. Os apps ocultos aparecem aqui.")
         }
     }
 
     private var generalSection: some View {
-        Section("General") {
-            Toggle("Open at login", isOn: $openAtLogin)
+        Section("Geral") {
+            Toggle("Abrir ao iniciar sessão", isOn: $openAtLogin)
                 .onChange(of: openAtLogin) { _, enabled in
                     do {
                         if enabled {
@@ -178,7 +208,7 @@ struct SettingsView: View {
             if let loginError {
                 Text(loginError).foregroundStyle(.red).font(.callout)
             }
-            LabeledContent("Settings file") {
+            LabeledContent("Arquivo de ajustes") {
                 Button(ConfigStore.fileURL.lastPathComponent) {
                     NSWorkspace.shared.activateFileViewerSelecting([ConfigStore.fileURL])
                 }

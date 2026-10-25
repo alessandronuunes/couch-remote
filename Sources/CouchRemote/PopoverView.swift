@@ -1,21 +1,31 @@
 import SwiftUI
 import TVKit
 
-/// The menu bar popover: status, apps, remote, volume, then typing and inputs.
+/// The menu bar popover: status, apps (or inputs on the Philips set), remote, volume, then typing.
 struct PopoverView: View {
     @Environment(RemoteModel.self) private var model
 
     var body: some View {
         VStack(spacing: 14) {
             HeaderView()
+            if model.config.philipsHost != nil {
+                TVPicker()
+            }
             StatusBanner()
-            AppsSection()
+            if model.isPhilips {
+                SourcesSection()
+            } else {
+                AppsSection()
+            }
             RemoteSection()
             VolumeRow()
-            FooterRow()
+            if !model.isPhilips {
+                FooterRow()
+            }
         }
         .padding(14)
         .frame(width: 340)
+        .hintBubbles()
         .background(
             WindowVisibilityReader { window, visible in
                 model.setPopover(window: window, visible: visible)
@@ -52,15 +62,17 @@ private struct HeaderView: View {
             Spacer(minLength: 4)
 
             Menu {
-                Button("Refresh Apps") { Task { await model.rescanApps() } }
-                Button("Pair Again") { model.pairAgain() }
-                Divider()
-                Button("Settings…") {
+                if !model.isPhilips {
+                    Button("Atualizar apps") { Task { await model.rescanApps() } }
+                    Button("Parear de novo") { model.pairAgain() }
+                    Divider()
+                }
+                Button("Ajustes…") {
                     NSApp.activate()
                     openSettings()
                 }
                 .keyboardShortcut(",")
-                Button("Quit Couch Remote") { NSApp.terminate(nil) }
+                Button("Sair do Couch Remote") { NSApp.terminate(nil) }
                     .keyboardShortcut("q")
             } label: {
                 Image(systemName: "ellipsis")
@@ -70,31 +82,37 @@ private struct HeaderView: View {
             .menuIndicator(.hidden)
             .buttonStyle(GlassCircleButtonStyle(diameter: 30))
             .fixedSize()
-            .help("More")
+            .hint("Mais opções")
 
             Button(action: model.togglePower) {
                 Image(systemName: "power")
             }
             .buttonStyle(GlassCircleButtonStyle(diameter: 30, tint: .red))
-            .help(model.power == .on ? "Turn off" : "Turn on")
+            .disabled(!model.canTogglePower)
+            .hint(powerHelp)
         }
         .background(WindowDragArea())
     }
 
+    private var powerHelp: String {
+        if !model.canTogglePower { return "Esta Philips não liga pela rede" }
+        return model.power == .on ? "Desligar" : "Ligar"
+    }
+
     private var statusText: String {
         switch model.link {
-        case .noTV: return "No TV selected"
-        case .searching: return "Looking for TVs…"
-        case .waitingForApproval: return "Waiting for Allow on the TV"
-        case .connecting where model.power == .on: return "Connecting…"
-        case .failed: return "Not connected"
+        case .noTV: return "Nenhuma TV selecionada"
+        case .searching: return "Procurando TVs…"
+        case .waitingForApproval: return "Aguardando permissão na TV"
+        case .connecting where model.power == .on: return "Conectando…"
+        case .failed: return "Não conectada"
         default: break
         }
         switch model.power {
-        case .on: return ["On", model.frontAppName].compactMap { $0 }.joined(separator: " · ")
-        case .standby: return "Standby"
-        case .offline: return "Off or unreachable"
-        case .unknown: return "Checking…"
+        case .on: return ["Ligada", model.frontAppName].compactMap { $0 }.joined(separator: " · ")
+        case .standby: return "Em espera"
+        case .offline: return "Desligada ou fora da rede"
+        case .unknown: return "Verificando…"
         }
     }
 
@@ -108,6 +126,22 @@ private struct HeaderView: View {
     }
 }
 
+// MARK: - TV picker
+
+private struct TVPicker: View {
+    @Environment(RemoteModel.self) private var model
+
+    var body: some View {
+        Picker("TV", selection: Binding(get: { model.config.activeTV }, set: model.selectTV)) {
+            Text(model.samsungName).tag(TVBrand.samsung)
+            Text("Philips").tag(TVBrand.philips)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .hint("Escolha qual TV este controle comanda")
+    }
+}
+
 // MARK: - Banner
 
 private struct StatusBanner: View {
@@ -117,17 +151,17 @@ private struct StatusBanner: View {
         switch model.link {
         case .waitingForApproval:
             banner(
-                symbol: "hand.tap", title: "Press Allow on your TV",
-                detail: "The TV is asking whether Couch Remote may control it.")
+                symbol: "hand.tap", title: "Toque em Permitir na TV",
+                detail: "A TV está perguntando se o Couch Remote pode controlá-la.")
         case .failed(let message):
             banner(
-                symbol: "exclamationmark.triangle", title: "Can't control the TV", detail: message,
-                action: ("Pair Again", model.pairAgain))
+                symbol: "exclamationmark.triangle", title: "Não foi possível controlar a TV", detail: message,
+                action: ("Parear de novo", model.pairAgain))
         case .noTV:
             banner(
-                symbol: "magnifyingglass", title: "No TV found",
-                detail: "Turn the TV on and make sure it's on the same Wi-Fi as this Mac.",
-                action: ("Search Again", { Task { await model.discover(autoSelect: true) } }))
+                symbol: "magnifyingglass", title: "Nenhuma TV encontrada",
+                detail: "Ligue a TV e confira se ela está no mesmo Wi-Fi deste Mac.",
+                action: ("Procurar de novo", { Task { await model.discover(autoSelect: true) } }))
         default:
             EmptyView()
         }
@@ -179,7 +213,7 @@ private struct AppsSection: View {
                 }
                 Spacer()
                 if apps.count > 10 {
-                    Button(model.showAllApps ? "Fewer" : "All \(apps.count)") {
+                    Button(model.showAllApps ? "Menos" : "Todos (\(apps.count))") {
                         withAnimation(.snappy) { model.showAllApps.toggle() }
                     }
                     .buttonStyle(.link)
@@ -189,17 +223,19 @@ private struct AppsSection: View {
             .padding(.horizontal, 2)
 
             if model.showAllApps && apps.count > 10 {
-                Text("Drag apps to rearrange. The first ten show when the list is collapsed.")
+                Text("Arraste os apps para reorganizar. Os dez primeiros aparecem com a lista recolhida.")
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, 2)
             }
 
             if apps.isEmpty {
-                Text(model.scanningApps ? "Looking for apps on the TV…" : "Apps show up here once the TV is on.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 60)
+                Text(
+                    model.scanningApps ? "Procurando apps na TV…" : "Os apps aparecem aqui quando a TV estiver ligada."
+                )
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, minHeight: 60)
             } else {
                 LazyVGrid(columns: columns, spacing: 10) {
                     ForEach(shown) { app in
@@ -217,6 +253,45 @@ private struct AppsSection: View {
                 }
                 // Dropping between tiles still ends the drag.
                 .onDrop(of: [.text], delegate: ReorderDropDelegate(target: nil, model: model, dragging: $dragging))
+            }
+        }
+    }
+}
+
+/// The Philips set's inputs, in place of apps. The list is what the TV supports, not what is plugged in.
+private struct SourcesSection: View {
+    @Environment(RemoteModel.self) private var model
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 3)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Entradas")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 2)
+
+            if model.philipsSources.isEmpty {
+                Text("As entradas aparecem aqui quando a TV estiver ligada.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 60)
+            } else {
+                LazyVGrid(columns: columns, spacing: 6) {
+                    ForEach(model.philipsSources) { source in
+                        let current = model.currentSource == source.id
+                        Button {
+                            model.selectSource(source.id)
+                        } label: {
+                            Text(source.name)
+                                .font(.system(size: 11, weight: current ? .semibold : .regular))
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, minHeight: 28)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(current ? Color.accentColor : .primary)
+                        .glassSurface(in: Capsule(), interactive: true)
+                    }
+                }
             }
         }
     }
@@ -270,16 +345,16 @@ private struct AppTile: View {
         .onTapGesture { model.launch(app) }
         .onHover { hovering = $0 }
         .animation(.snappy(duration: 0.15), value: hovering)
-        .help("\(app.name). Drag to rearrange.")
+        .hint("\(app.name). Arraste para reorganizar.")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(app.name)
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { model.launch(app) }
         .contextMenu {
-            Button("Move to Front") { withAnimation(.snappy) { model.moveToFront(app) } }
-            Button("Move to End") { withAnimation(.snappy) { model.moveToEnd(app) } }
+            Button("Mover para o início") { withAnimation(.snappy) { model.moveToFront(app) } }
+            Button("Mover para o fim") { withAnimation(.snappy) { model.moveToEnd(app) } }
             Divider()
-            Button("Hide") { withAnimation(.snappy) { model.hide(app) } }
+            Button("Ocultar") { withAnimation(.snappy) { model.hide(app) } }
         }
     }
 
@@ -338,20 +413,20 @@ private struct RemoteSection: View {
         HStack {
             VStack(spacing: 14) {
                 HoldCircle(key: .back, diameter: 40) { Image(systemName: "arrow.uturn.backward") }
-                    .help("Back (⌫). Hold to leave the app.")
+                    .hint(model.isPhilips ? "Voltar (⌫)" : "Voltar (⌫). Segure para sair do app.")
                 Button {
                     model.press(.home)
                 } label: {
                     Image(systemName: "house")
                 }
-                .help("Home (H)")
+                .hint("Início (H)")
                 // Opens the TV's own input list. KEY_HDMI1 and KEY_HDMI2 did nothing on this TV (tested); KEY_SOURCE works.
                 Button {
                     model.press(.source)
                 } label: {
                     Image(systemName: "cable.connector.horizontal")
                 }
-                .help("Source: show the TV's input list, then pick with the arrows and OK")
+                .hint("Fonte: mostra as entradas da TV; escolha com as setas e OK")
             }
             Spacer()
             if model.pointerMode {
@@ -364,21 +439,24 @@ private struct RemoteSection: View {
             Spacer()
             VStack(spacing: 14) {
                 Button(action: model.playPause) { Image(systemName: "playpause.fill") }
-                    .help("Play / Pause (space)")
+                    .hint("Reproduzir / Pausar (espaço)")
                 Button {
                     model.press(.info)
                 } label: {
                     Image(systemName: "info")
                 }
-                .help("Info (I)")
+                .hint("Informações (I)")
                 Button {
                     withAnimation(.snappy(duration: 0.2)) { model.pointerMode.toggle() }
                 } label: {
                     Image(systemName: model.pointerMode ? "dpad" : "cursorarrow.rays")
                 }
-                .help(
-                    model.pointerMode ? "Back to arrow buttons" : "Trackpad: steer the TV's cursor, e.g. in the browser"
+                .hint(
+                    model.pointerMode
+                        ? "Voltar para as setas" : "Trackpad: move o cursor da TV, por exemplo no navegador"
                 )
+                .opacity(model.isPhilips ? 0 : 1)
+                .disabled(model.isPhilips)
             }
         }
         .buttonStyle(GlassCircleButtonStyle(diameter: 40))
@@ -394,20 +472,20 @@ private struct DPad: View {
     var body: some View {
         ZStack {
             Color.clear.glassSurface(in: Circle())
-            arrow(.up, "chevron.up").offset(y: -size / 2 + 26)
-            arrow(.down, "chevron.down").offset(y: size / 2 - 26)
-            arrow(.left, "chevron.left").offset(x: -size / 2 + 26)
-            arrow(.right, "chevron.right").offset(x: size / 2 - 26)
+            arrow(.up, "chevron.up", "Cima (↑)").offset(y: -size / 2 + 26)
+            arrow(.down, "chevron.down", "Baixo (↓)").offset(y: size / 2 - 26)
+            arrow(.left, "chevron.left", "Esquerda (←)").offset(x: -size / 2 + 26)
+            arrow(.right, "chevron.right", "Direita (→)").offset(x: size / 2 - 26)
             HoldCircle(key: .enter, diameter: 76) {
                 Text("OK").font(.system(size: 13, weight: .semibold))
             }
-            .help("OK (↩)")
+            .hint("OK (↩)")
         }
         .frame(width: size, height: size)
     }
 
     /// Arrows are held, not clicked: keep the mouse down to keep moving (cursor, scrolling, seeking).
-    private func arrow(_ key: RemoteKey, _ symbol: String) -> some View {
+    private func arrow(_ key: RemoteKey, _ symbol: String, _ name: String) -> some View {
         let lit = model.isLit(key)
         return Image(systemName: symbol)
             .font(.system(size: 15, weight: .bold))
@@ -417,6 +495,7 @@ private struct DPad: View {
             .contentShape(Circle())
             .animation(.easeOut(duration: 0.12), value: lit)
             .holdsKey(key)
+            .hint(model.isPhilips ? name : "\(name). Segure para continuar movendo.")
     }
 }
 
@@ -485,11 +564,11 @@ private struct VolumeRow: View {
                 Image(systemName: model.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
             }
             .buttonStyle(GlassCircleButtonStyle(diameter: 30))
-            .help("Mute (M)")
+            .hint("Mudo (M)")
 
-            Slider(value: Binding(get: { model.volume }, set: model.setVolume), in: 0...100)
+            Slider(value: Binding(get: { model.volume }, set: model.setVolume), in: 0...model.volumeMax)
                 .controlSize(.small)
-                .help("Volume (+ / −)")
+                .hint("Volume (+ / −)")
 
             Text("\(Int(model.volume))")
                 .font(.system(size: 12).monospacedDigit())
@@ -502,14 +581,14 @@ private struct VolumeRow: View {
                 } label: {
                     Image(systemName: "chevron.down").frame(width: 26, height: 28)
                 }
-                .help("Channel down")
+                .hint("Canal anterior")
                 Text("CH").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
                 Button {
                     model.press(.channelUp)
                 } label: {
                     Image(systemName: "chevron.up").frame(width: 26, height: 28)
                 }
-                .help("Channel up")
+                .hint("Próximo canal")
             }
             .font(.system(size: 11, weight: .bold))
             .buttonStyle(.plain)
@@ -530,7 +609,7 @@ private struct FooterRow: View {
         HStack(spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "keyboard").foregroundStyle(.secondary)
-                TextField(model.tvKeyboardOpen ? "TV keyboard is open, type here" : "Type on TV…", text: $text)
+                TextField(model.tvKeyboardOpen ? "Teclado da TV aberto, digite aqui" : "Digitar na TV…", text: $text)
                     .textFieldStyle(.plain)
                     // Live: the TV's field mirrors this one as you type; Return confirms it.
                     .onChange(of: text) { _, value in
@@ -551,7 +630,7 @@ private struct FooterRow: View {
             .padding(.horizontal, 10)
             .frame(height: 30)
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.primary.opacity(0.06)))
-            .help("Types live into the TV's focused text field. Open a search field on the TV first; Return confirms.")
+            .hint("Digita ao vivo no campo de texto da TV. Abra uma busca na TV antes; Return confirma.")
 
         }
         .padding(.top, 10)

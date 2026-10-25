@@ -31,6 +31,19 @@ final class PhilipsTVTests: XCTestCase {
         XCTAssertEqual(sources.first?.name, "HDMI 1")
     }
 
+    func testConfigWithoutPhilipsFieldsDefaultsToSamsung() throws {
+        let old = try JSONDecoder().decode(TVConfig.self, from: Data(#"{"host": "192.168.1.203"}"#.utf8))
+        XCTAssertEqual(old.activeTV, .samsung)
+        XCTAssertNil(old.philipsHost)
+
+        var config = TVConfig()
+        config.philipsHost = "192.168.1.210"
+        config.activeTV = .philips
+        let roundTrip = try JSONDecoder().decode(TVConfig.self, from: try JSONEncoder().encode(config))
+        XCTAssertEqual(roundTrip.philipsHost, "192.168.1.210")
+        XCTAssertEqual(roundTrip.activeTV, .philips)
+    }
+
     func testSamsungKeysMapToPhilipsKeys() {
         XCTAssertEqual(PhilipsKey(.enter), .confirm)
         XCTAssertEqual(PhilipsKey(.power), .standby)

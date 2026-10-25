@@ -18,6 +18,10 @@ public struct TVConfig: Codable, Equatable, Sendable {
     public var knownApps: [TVApp]
     /// "When this app opens, open that one instead", to repurpose the remote's hard-wired app buttons.
     public var remaps: [AppRemap]
+    /// Address of a Philips NetTV set, controlled alongside the Samsung TV above.
+    public var philipsHost: String?
+    /// The TV the remote currently drives.
+    public var activeTV: TVBrand
 
     public init() {
         appOrder = []
@@ -25,6 +29,7 @@ public struct TVConfig: Codable, Equatable, Sendable {
         customAppIDs = []
         knownApps = []
         remaps = []
+        activeTV = .samsung
     }
 
     public init(from decoder: Decoder) throws {
@@ -46,12 +51,19 @@ public struct TVConfig: Codable, Equatable, Sendable {
         } else {
             remaps = []
         }
+        philipsHost = try c.decodeIfPresent(String.self, forKey: .philipsHost)
+        activeTV = try c.decodeIfPresent(TVBrand.self, forKey: .activeTV) ?? .samsung
     }
 
     /// Source app ID → target app ID, for `SamsungTV.runRemaps`. The first rule for a source wins.
     public var remapTable: [String: String] {
         Dictionary(remaps.map { ($0.fromAppID, $0.toAppID) }, uniquingKeysWith: { first, _ in first })
     }
+}
+
+public enum TVBrand: String, Codable, Sendable {
+    case samsung
+    case philips
 }
 
 /// One remap rule. Both IDs come from the apps scanned on the user's own TV, so they match that TV

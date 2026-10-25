@@ -20,13 +20,15 @@ struct TrackpadView: View {
                 Image(systemName: captured ? "cursorarrow.motionlines" : "cursorarrow.rays")
                     .font(.system(size: 22, weight: .medium))
                     .foregroundStyle(captured ? Color.accentColor : .secondary)
-                Text(captured ? "Moving the TV cursor" : "Click to control\nthe TV cursor")
+                Text(captured ? "Movendo o cursor da TV" : "Clique para controlar\no cursor da TV")
                     .font(.system(size: 11, weight: .medium))
                     .multilineTextAlignment(.center)
-                Text(captured ? "Click to click · type to fill a field\nEsc to stop" : "Esc gives your cursor back")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                Text(
+                    captured ? "Clique para clicar · digite para preencher\nEsc para parar" : "Esc devolve o seu cursor"
+                )
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
                 if captured && !model.typedText.isEmpty {
                     Text(model.typedText)
                         .font(.system(size: 11, design: .monospaced))
