@@ -12,6 +12,8 @@ BIN="$(swift build -c release --show-bin-path)"
 APP="build/Controle TV.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+# Keep Spotlight from indexing this build copy, so searches only find the installed app.
+touch build/.metadata_never_index
 cp "$BIN/CouchRemote" "$APP/Contents/MacOS/CouchRemote"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
