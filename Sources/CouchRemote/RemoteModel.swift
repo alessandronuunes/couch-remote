@@ -53,6 +53,8 @@ final class RemoteModel {
     /// Last queued Philips key, so keys reach the TV in the order they were pressed.
     @ObservationIgnored private var philipsKeyTask: Task<Void, Never>?
     @ObservationIgnored private var lastVolumeEdit = Date.distantPast
+    /// Throttles the network search that finds the Samsung TV again after its address changes.
+    @ObservationIgnored private var lastRelocate = Date.distantPast
     @ObservationIgnored private var flashCount = 0
     @ObservationIgnored private var keyMonitor: Any?
     /// Window number → on screen, for every window showing the remote (menu bar popover, floating window).
@@ -249,29 +251,50 @@ final class RemoteModel {
             await refreshPhilipsStatus(philips)
             return
         }
-        guard let tv else { return }
+        guard tv != nil else { return }
         volumeMax = 100
-        do {
-            let info = try await tv.info()
-            device = info
-            power = info.isOn ? .on : .standby
-            if config.wifiMAC != info.wifiMAC || config.name != info.name {
-                config.wifiMAC = info.wifiMAC ?? config.wifiMAC
-                config.name = info.name
-                config.modelName = info.modelName
-                persist()
-            }
-        } catch {
+        var info = try? await tv?.info()
+        // The TV may have moved to a new DHCP address; find it again by MAC and retry.
+        if info == nil, await relocateSamsung() {
+            info = try? await tv?.info()
+        }
+        guard let info else {
             power = .offline
             if link != .waitingForApproval { link = .offline }
             return
         }
+        device = info
+        power = info.isOn ? .on : .standby
+        if config.wifiMAC != info.wifiMAC || config.name != info.name {
+            config.wifiMAC = info.wifiMAC ?? config.wifiMAC
+            config.name = info.name
+            config.modelName = info.modelName
+            persist()
+        }
         if link == .offline { link = .connecting }
         guard power == .on else { return }
-        if Date().timeIntervalSince(lastVolumeEdit) > 2, let value = try? await tv.volume() {
+        if Date().timeIntervalSince(lastVolumeEdit) > 2, let value = try? await tv?.volume() {
             volume = Double(value)
         }
-        if let value = try? await tv.isMuted() { muted = value }
+        if let value = try? await tv?.isMuted() { muted = value }
+    }
+
+    /// Finds the saved Samsung TV again on the network when it isn't at its saved address (DHCP moved it),
+    /// matching by MAC, and points the app at the new address while keeping the pairing token. Throttled.
+    private func relocateSamsung() async -> Bool {
+        guard config.wifiMAC != nil || config.name != nil else { return false }
+        guard Date().timeIntervalSince(lastRelocate) > 15 else { return false }
+        lastRelocate = Date()
+        let found = await Discovery.find()
+        let savedMAC = config.wifiMAC?.uppercased()
+        let match =
+            found.first { savedMAC != nil && $0.wifiMAC?.uppercased() == savedMAC }
+            ?? found.first { $0.name == config.name }
+        guard let match, match.host != config.host else { return false }
+        config.host = match.host
+        persist()
+        makeTV(host: match.host)
+        return true
     }
 
     /// The Philips set has no connection to keep: it is reachable over HTTP or it is off.

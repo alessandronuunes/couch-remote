@@ -41,6 +41,8 @@ public struct DiscoveredTV: Sendable, Hashable, Identifiable {
     public let host: String
     public let name: String
     public let modelName: String
+    /// Wi-Fi MAC, stable across DHCP address changes, so a saved TV can be found again after it moves.
+    public let wifiMAC: String?
     public var id: String { host }
 }
 
@@ -56,7 +58,7 @@ public enum Discovery {
             for host in hosts {
                 group.addTask {
                     guard let info = try? await TVRest.deviceInfo(host: host) else { return nil }
-                    return DiscoveredTV(host: host, name: info.name, modelName: info.modelName)
+                    return DiscoveredTV(host: host, name: info.name, modelName: info.modelName, wifiMAC: info.wifiMAC)
                 }
             }
             var found: [DiscoveredTV] = []
