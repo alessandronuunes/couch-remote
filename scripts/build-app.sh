@@ -26,6 +26,10 @@ if [[ "${1:-}" == "--install" ]]; then
   # Installs before the rename were called "Couch Remote.app".
   rm -rf ~/Applications/"Controle TV.app" ~/Applications/"Couch Remote.app"
   cp -R "$APP" ~/Applications/
-  echo "Installed ~/Applications/Controle TV.app"
+  # Drop the build copy so Spotlight only ever finds the installed app.
+  rm -rf "$APP"
+  echo "Installed ~/Applications/Controle TV.app (build copy removed)"
+  echo "Built build/tvctl"
+else
+  echo "Built $APP and build/tvctl"
 fi
-echo "Built $APP and build/tvctl"
